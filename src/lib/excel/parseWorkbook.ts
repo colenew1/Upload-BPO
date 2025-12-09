@@ -188,10 +188,34 @@ const toAmplifaiOrg = (value: unknown): string | null => {
 };
 
 /**
- * Normalize to amplifai_metric format using centralized mappings
+ * Normalize to amplifai_metric format using centralized mappings.
+ * Supports optional DB-based resolver that takes precedence over hard-coded.
  */
 import { deriveAmplifaiMetric } from '@/lib/excel/amplifaiMappings';
-const toAmplifaiMetric = deriveAmplifaiMetric;
+
+// Optional DB-based resolver - injected before parsing via setDbMetricResolver()
+let dbMetricResolver: ((raw: unknown) => string | null) | null = null;
+
+/**
+ * Injects a DB-based metric resolver for the next parse operation.
+ * Call this before parseWorkbook() with a resolver created from loadMetricAliases().
+ * Pass null to clear the resolver after parsing.
+ */
+export function setDbMetricResolver(
+  resolver: ((raw: unknown) => string | null) | null,
+): void {
+  dbMetricResolver = resolver;
+}
+
+const toAmplifaiMetric = (value: unknown): string | null => {
+  // Try DB resolver first (if injected)
+  if (dbMetricResolver) {
+    const dbResult = dbMetricResolver(value);
+    if (dbResult) return dbResult;
+  }
+  // Fall back to hard-coded mappings
+  return deriveAmplifaiMetric(value);
+};
 
 const coerceString = (value: unknown): string | null => {
   if (value === null || value === undefined) return null;

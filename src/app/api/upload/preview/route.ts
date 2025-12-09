@@ -1,7 +1,11 @@
 import { NextResponse } from 'next/server';
 
-import { parseWorkbook, parseSingleSheet } from '@/lib/excel/parseWorkbook';
+import { parseWorkbook, parseSingleSheet, setDbMetricResolver } from '@/lib/excel/parseWorkbook';
 import { getServerEnv } from '@/lib/env';
+import {
+  loadMetricAliases,
+  createMetricResolver,
+} from '@/lib/mappings/metricResolver';
 import {
   computeChecksum,
   savePreview,
@@ -55,7 +59,19 @@ export async function POST(request: Request) {
 
     const clientOverride = formData.get('client')?.toString() ?? undefined;
     const mode = formData.get('mode')?.toString() ?? 'combined';
-    
+
+    // Load metric aliases from DB and inject resolver before parsing
+    try {
+      const aliases = await loadMetricAliases();
+      if (aliases.length > 0) {
+        const resolver = createMetricResolver(aliases, clientOverride ?? null);
+        setDbMetricResolver(resolver);
+      }
+    } catch (err) {
+      // Non-fatal: fall back to hard-coded mappings
+      console.warn('[preview] Failed to load metric aliases from DB, using hard-coded:', err);
+    }
+
     let parsed;
     try {
       if (mode === 'combined') {
@@ -108,6 +124,8 @@ export async function POST(request: Request) {
         }
       }
     } catch (error) {
+      // Clear resolver on parse error
+      setDbMetricResolver(null);
       return NextResponse.json(
         {
           error:
@@ -118,6 +136,9 @@ export async function POST(request: Request) {
         { status: 400 },
       );
     }
+
+    // Clear resolver after successful parsing
+    setDbMetricResolver(null);
 
     // Check for duplicates in Supabase
     const client = clientOverride ?? filename.replace(/\.xlsx$/i, '');

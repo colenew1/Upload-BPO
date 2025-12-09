@@ -54,6 +54,29 @@ export type MonthlyMetricInsert = Omit<
 export type ActivityMetricRow = MonthlyMetricRow;
 export type ActivityMetricInsert = MonthlyMetricInsert;
 
+// Metric alias mapping table - maps raw metric names to canonical names
+export type MetricAliasRow = {
+  id: string;
+  canonical_name: string;
+  alias: string;
+  match_type: 'exact' | 'contains' | 'regex';
+  case_sensitive: boolean;
+  priority: number;
+  client: string | null;
+  notes: string | null;
+  created_at: Timestamp;
+  updated_at: Timestamp;
+};
+
+export type MetricAliasInsert = Omit<
+  MetricAliasRow,
+  'id' | 'created_at' | 'updated_at'
+> & {
+  id?: string;
+  created_at?: Timestamp;
+  updated_at?: Timestamp;
+};
+
 export type Database = {
   public: {
     Tables: {
@@ -73,6 +96,12 @@ export type Database = {
         Row: ActivityMetricRow;
         Insert: ActivityMetricInsert;
         Update: Partial<ActivityMetricInsert>;
+        Relationships: [];
+      };
+      metric_aliases: {
+        Row: MetricAliasRow;
+        Insert: MetricAliasInsert;
+        Update: Partial<MetricAliasInsert>;
         Relationships: [];
       };
     };
