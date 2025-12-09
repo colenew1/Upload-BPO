@@ -82,7 +82,8 @@ describe('parseWorkbook', () => {
     expect(behavior.organization).toBe('United Health Group');
     // amplifaiOrg maps UHC variations to canonical 'UHC'
     expect(behavior.amplifaiOrg).toBe('UHC');
-    expect(behavior.amplifaiMetric).toBe('CHAT NPS');
+    // amplifaiMetric consolidates all NPS variations to 'NPS'
+    expect(behavior.amplifaiMetric).toBe('NPS');
     expect(behavior.coachingCount).toBe(42);
     expect(behavior.effectivenessPct).toBe(55);
 
@@ -175,6 +176,39 @@ describe('parseWorkbook', () => {
     expect(result.monthlyMetrics[0].month).toBe('Dec');
     expect(result.meta.sheets.behaviors).toBe('CustomEffectiveness');
     expect(result.meta.sheets.metrics).toBe('CustomGoal');
+  });
+
+  it('infers Teleperformance filenames to TP when no override is provided', () => {
+    const buffer = buildWorkbookBuffer(
+      [
+        {
+          'Month_Year': 'Jun-25',
+          organization: 'Teleperformance',
+          Program: 'Support',
+          Behavior: 'Empathy',
+          'Coaching Count': '2',
+        },
+      ],
+      [
+        {
+          'Month Year': 'Jun-25',
+          organization: 'Teleperformance',
+          Program: 'Support',
+          Metric: 'NPS',
+          Actual: '75',
+          Goal: '80',
+          PTG: '94%',
+        },
+      ],
+    );
+
+    const result = parseWorkbook({
+      buffer,
+      fileName: 'teleperformance-coaching.xlsx',
+      today: new Date('2025-07-10T00:00:00Z'),
+    });
+
+    expect(result.meta.client).toBe('TP');
   });
 });
 

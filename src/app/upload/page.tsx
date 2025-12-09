@@ -23,7 +23,7 @@ const TAB_STYLES = {
 export default function UploadPage() {
   const [mode, setMode] = useState<UploadMode>('combined');
   const [file, setFile] = useState<File | null>(null);
-  const [client, setClient] = useState('');
+  const [client, setClient] = useState<'Alorica' | 'TTEC' | 'TP'>('TTEC');
   const [behaviorSheet, setBehaviorSheet] = useState('');
   const [metricSheet, setMetricSheet] = useState('');
   const [singleSheetName, setSingleSheetName] = useState('');
@@ -47,7 +47,7 @@ export default function UploadPage() {
     startUpload();
     const formData = new FormData();
     formData.append('file', file);
-    if (client.trim()) formData.append('client', client.trim());
+    formData.append('client', client);
     
     // Set mode and sheet hints based on upload type
     formData.append('mode', mode);
@@ -173,14 +173,26 @@ export default function UploadPage() {
               </div>
 
               <div>
-                <label className={formLabel}>Client override (optional)</label>
-                <input
-                  type="text"
-                  className={`${formInput} mt-2`}
-                  value={client}
-                  onChange={(event) => setClient(event.target.value)}
-                  placeholder="e.g. TTEC"
-                />
+                <label className={formLabel}>Client</label>
+                <div className="mt-2 flex gap-2 rounded-2xl border border-white/10 bg-white/5 p-2">
+                  {(['Alorica', 'TTEC', 'TP'] as const).map((option) => (
+                    <button
+                      key={option}
+                      type="button"
+                      onClick={() => setClient(option)}
+                      className={`flex-1 rounded-xl px-4 py-2 text-sm font-semibold transition ${
+                        client === option
+                          ? 'bg-emerald-500 text-emerald-950'
+                          : 'bg-transparent text-white/70 hover:text-white'
+                      }`}
+                    >
+                      {option}
+                    </button>
+                  ))}
+                </div>
+                <p className="mt-1 text-xs text-white/50">
+                  Pick the client for this upload. Teleperformance files default to TP if not set.
+                </p>
               </div>
 
               {mode === 'combined' ? (

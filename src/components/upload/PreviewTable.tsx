@@ -32,10 +32,10 @@ export const DATASET_CONFIG: Record<
       { header: 'Organization', accessor: (row) => row.organization ?? '—' },
       { header: 'Amplifai Org', accessor: (row) => row.amplifaiOrg ?? '—', className: 'text-emerald-300 font-medium' },
       { header: 'Program', accessor: (row) => row.program ?? '—' },
-      { header: 'Metric', accessor: (row) => row.metric ?? '—' },
+      { header: 'Metric', accessor: (row) => ('metric' in row ? row.metric : null) ?? '—' },
       { header: 'Amplifai Metric', accessor: (row) => row.amplifaiMetric ?? '—', className: 'text-emerald-300 font-medium' },
-      { header: 'Behavior', accessor: (row) => row.behavior ?? '—' },
-      { header: 'Sub-Behavior', accessor: (row) => row.subBehavior ?? '—' },
+      { header: 'Behavior', accessor: (row) => ('behavior' in row ? row.behavior : null) ?? '—' },
+      { header: 'Sub-Behavior', accessor: (row) => ('subBehavior' in row ? row.subBehavior : null) ?? '—' },
       {
         header: 'Month',
         accessor: (row) => `${row.month} ${row.year}`,
@@ -65,7 +65,7 @@ export const DATASET_CONFIG: Record<
       { header: 'Organization', accessor: (row) => row.organization ?? '—' },
       { header: 'Amplifai Org', accessor: (row) => row.amplifaiOrg ?? '—', className: 'text-emerald-300 font-medium' },
       { header: 'Program', accessor: (row) => row.program ?? '—' },
-      { header: 'Metric Name', accessor: (row) => row.metricName ?? '—' },
+      { header: 'Metric Name', accessor: (row) => ('metricName' in row ? row.metricName : null) ?? '—' },
       { header: 'Amplifai Metric', accessor: (row) => row.amplifaiMetric ?? '—', className: 'text-emerald-300 font-medium' },
       {
         header: 'Month',
@@ -103,7 +103,7 @@ export const DATASET_CONFIG: Record<
       { header: 'Organization', accessor: (row) => row.organization ?? '—' },
       { header: 'Amplifai Org', accessor: (row) => row.amplifaiOrg ?? '—', className: 'text-emerald-300 font-medium' },
       { header: 'Program', accessor: (row) => row.program ?? '—' },
-      { header: 'Metric Name', accessor: (row) => row.metricName ?? '—' },
+      { header: 'Metric Name', accessor: (row) => ('metricName' in row ? row.metricName : null) ?? '—' },
       { header: 'Amplifai Metric', accessor: (row) => row.amplifaiMetric ?? '—', className: 'text-emerald-300 font-medium' },
       {
         header: 'Month',

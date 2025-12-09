@@ -61,19 +61,25 @@ export type Database = {
         Row: BehavioralCoachingRow;
         Insert: BehavioralCoachingInsert;
         Update: Partial<BehavioralCoachingInsert>;
+        Relationships: [];
       };
       monthly_metrics: {
         Row: MonthlyMetricRow;
         Insert: MonthlyMetricInsert;
         Update: Partial<MonthlyMetricInsert>;
+        Relationships: [];
       };
       activity_metrics: {
         Row: ActivityMetricRow;
         Insert: ActivityMetricInsert;
         Update: Partial<ActivityMetricInsert>;
+        Relationships: [];
       };
     };
+    Views: Record<string, never>;
     Functions: Record<string, never>;
+    Enums: Record<string, never>;
+    CompositeTypes: Record<string, never>;
   };
 };
 

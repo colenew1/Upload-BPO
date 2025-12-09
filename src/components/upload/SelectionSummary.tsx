@@ -126,14 +126,24 @@ export const SelectionSummary = () => {
             Preview & Commit
           </p>
           <h2 className="text-2xl font-semibold text-white">
-            {preview ? preview.meta.client : 'Upload a workbook to begin'}
+            {preview ? 'Preview summary' : 'Upload a workbook to begin'}
           </h2>
-          {preview && (
-            <p className="text-sm text-white/60">
-              {preview.meta.workbookName ?? preview.meta.client} ·{' '}
-              Expires in ~{Math.max(preview.ttlSeconds, 0)}s
-            </p>
-          )}
+          {preview ? (
+            <div className="mt-2 space-y-1 text-sm text-white/70">
+              <div className="inline-flex items-center gap-2 rounded-xl border border-white/15 bg-white/5 px-3 py-1.5">
+                <span className="text-xs uppercase tracking-wide text-white/50">
+                  Client (will be saved as)
+                </span>
+                <span className="text-base font-semibold text-white">
+                  {preview.meta.client}
+                </span>
+              </div>
+              <p>
+                {preview.meta.workbookName ?? preview.meta.client} · Expires in ~
+                {Math.max(preview.ttlSeconds, 0)}s
+              </p>
+            </div>
+          ) : null}
         </div>
         <div className="flex gap-2">
           <button
@@ -222,7 +232,7 @@ export const SelectionSummary = () => {
               type="button"
               className="flex-1 rounded-xl bg-emerald-500 px-6 py-3 text-center text-base font-semibold text-emerald-950 transition hover:bg-emerald-400 disabled:cursor-not-allowed disabled:bg-emerald-500/50 disabled:text-emerald-200"
               onClick={handleCommit}
-              disabled={!canCommit || status === 'committing'}
+              disabled={!canCommit}
               data-testid="commit-button"
             >
               {status === 'committing'

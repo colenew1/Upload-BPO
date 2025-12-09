@@ -188,13 +188,10 @@ const toAmplifaiOrg = (value: unknown): string | null => {
 };
 
 /**
- * Normalize to amplifai_metric format: uppercase, trimmed, cleaned
+ * Normalize to amplifai_metric format using centralized mappings
  */
-const toAmplifaiMetric = (value: unknown): string | null => {
-  if (value === null || value === undefined) return null;
-  const str = String(value).trim().toUpperCase().replace(/\s+/g, ' ');
-  return str.length > 0 ? str : null;
-};
+import { deriveAmplifaiMetric } from '@/lib/excel/amplifaiMappings';
+const toAmplifaiMetric = deriveAmplifaiMetric;
 
 const coerceString = (value: unknown): string | null => {
   if (value === null || value === undefined) return null;
@@ -360,6 +357,12 @@ const inferClientFromFile = (fileName: string) => {
   const segment = withoutData.split(/[_-]/)[0] ?? withoutData;
   const cleaned = normalizeWhitespace(segment);
   if (!cleaned) return 'Unknown Client';
+
+  const normalized = cleaned.toLowerCase();
+  if (normalized.includes('teleperformance')) {
+    return 'TP';
+  }
+
   if (cleaned.length <= 4) return cleaned.toUpperCase();
   return cleaned[0].toUpperCase() + cleaned.slice(1);
 };

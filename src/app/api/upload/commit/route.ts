@@ -9,6 +9,11 @@ import {
   toBehaviorInsert,
   toMonthlyMetricInsert,
 } from '@/lib/upload/transformers';
+import type {
+  ActivityMetricInsert,
+  BehavioralCoachingInsert,
+  MonthlyMetricInsert,
+} from '@/types/database';
 
 export const runtime = 'nodejs';
 
@@ -72,9 +77,57 @@ export async function POST(request: Request) {
 
   const supabase = getSupabaseAdminClient();
 
-  const behaviorInserts = selectedBehaviors.map(toBehaviorInsert);
-  const monthlyInserts = selectedMonthly.map(toMonthlyMetricInsert);
-  const activityInserts = selectedActivity.map(toActivityMetricInsert);
+  const dedupe = <T>(rows: T[], keyFn: (row: T) => string): T[] => {
+    const map = new Map<string, T>();
+    rows.forEach((row) => {
+      const key = keyFn(row);
+      if (!map.has(key)) {
+        map.set(key, row);
+      }
+    });
+    return Array.from(map.values());
+  };
+
+  const behaviorInserts: BehavioralCoachingInsert[] = dedupe(
+    selectedBehaviors.map(toBehaviorInsert),
+    (row) =>
+      [
+        row.client,
+        row.organization ?? '',
+        row.program ?? '',
+        row.metric ?? '',
+        row.behavior ?? '',
+        row.sub_behavior ?? '',
+        row.month,
+        row.year,
+      ].join('|').toLowerCase(),
+  );
+
+  const monthlyInserts: MonthlyMetricInsert[] = dedupe(
+    selectedMonthly.map(toMonthlyMetricInsert),
+    (row) =>
+      [
+        row.client,
+        row.organization ?? '',
+        row.program ?? '',
+        row.metric_name ?? '',
+        row.month,
+        row.year,
+      ].join('|').toLowerCase(),
+  );
+
+  const activityInserts: ActivityMetricInsert[] = dedupe(
+    selectedActivity.map(toActivityMetricInsert),
+    (row) =>
+      [
+        row.client,
+        row.organization ?? '',
+        row.program ?? '',
+        row.metric_name ?? '',
+        row.month,
+        row.year,
+      ].join('|').toLowerCase(),
+  );
 
   const runInsert = async () => {
     const summaries: Array<{ table: string; count: number }> = [];
@@ -85,7 +138,6 @@ export async function POST(request: Request) {
         .upsert(behaviorInserts, {
           onConflict:
             'client,organization,program,behavior,sub_behavior,month,year',
-          returning: 'minimal',
         });
       if (error) throw error;
       summaries.push({ table: 'behavioral_coaching', count: behaviorInserts.length });
@@ -97,7 +149,6 @@ export async function POST(request: Request) {
         .upsert(monthlyInserts, {
           onConflict:
             'client,organization,program,metric_name,month,year',
-          returning: 'minimal',
         });
       if (error) throw error;
       summaries.push({ table: 'monthly_metrics', count: monthlyInserts.length });
@@ -109,7 +160,6 @@ export async function POST(request: Request) {
         .upsert(activityInserts, {
           onConflict:
             'client,organization,program,metric_name,month,year',
-          returning: 'minimal',
         });
       if (error) throw error;
       summaries.push({ table: 'activity_metrics', count: activityInserts.length });

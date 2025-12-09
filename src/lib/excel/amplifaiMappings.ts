@@ -13,10 +13,40 @@ const ORG_MAPPINGS: MappingEntry[] = [
       /\buhi\b/i,
     ],
   },
+  {
+    canonical: 'TP',
+    // Teleperformance variations → TP
+    patterns: [/teleperformance/i, /\btp\b/i],
+  },
   // Note: OPTUM UBH stays as OPTUM UBH per existing data
 ];
 
 const METRIC_MAPPINGS: MappingEntry[] = [
+  // ============================================
+  // CRITICAL METRICS - Must consolidate properly
+  // ============================================
+  {
+    canonical: 'NPS',
+    patterns: [
+      // Anything containing "NPS" → NPS (case insensitive)
+      /nps/i,
+      // Net Promoter variations
+      /net\s*promoter/i,
+    ],
+  },
+  {
+    canonical: 'RELEASE RATE',
+    patterns: [
+      // Anything containing "release rate" or just "release"
+      /release\s*rate/i,
+      /^release$/i,
+      // Attrition is often the same concept
+      /\battrition\b/i,
+    ],
+  },
+  // ============================================
+  // OTHER CONSOLIDATED METRICS
+  // ============================================
   {
     canonical: 'AHT',
     patterns: [
@@ -39,8 +69,7 @@ const METRIC_MAPPINGS: MappingEntry[] = [
       /^unplanned\s*absenteeism/i,
     ],
   },
-  // Most metrics pass through as-is (uppercased)
-  // Only add mappings for metrics that need to be consolidated
+  // Other metrics pass through as-is (uppercased)
 ];
 
 const normalizeWhitespace = (value: string) => value.replace(/\s+/g, ' ').trim();

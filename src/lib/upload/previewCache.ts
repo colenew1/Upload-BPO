@@ -24,7 +24,14 @@ type SavePreviewArgs = {
   payload: ParseWorkbookResult;
 };
 
-const cache = new Map<string, PreviewCacheEntry>();
+type GlobalWithCache = typeof globalThis & {
+  __previewCache?: Map<string, PreviewCacheEntry>;
+};
+
+const globalForCache = globalThis as GlobalWithCache;
+const cache =
+  globalForCache.__previewCache ??
+  (globalForCache.__previewCache = new Map<string, PreviewCacheEntry>());
 
 const purgeExpired = () => {
   const now = Date.now();

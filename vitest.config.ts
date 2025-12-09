@@ -12,7 +12,6 @@ export default defineConfig({
     environment: 'node',
     globals: true,
     include: ['src/**/*.{test,spec}.{ts,tsx}'],
-    envFile: false,
     coverage: {
       provider: 'v8',
       reporter: ['text', 'lcov'],
