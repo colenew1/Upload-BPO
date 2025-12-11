@@ -163,11 +163,19 @@ export default function HealthPage() {
         }),
       });
 
-      if (!response.ok) throw new Error('Failed to save alias');
+      const data = await response.json();
+
+      if (!response.ok) {
+        console.error('[handleAssignIndustry] API error:', data);
+        throw new Error(data.details || data.error || 'Failed to save alias');
+      }
+
+      console.log('[handleAssignIndustry] Success:', data);
 
       // Refresh report
       await fetchReport();
     } catch (err) {
+      console.error('[handleAssignIndustry] Error:', err);
       alert(err instanceof Error ? err.message : 'Failed to save');
     } finally {
       setSavingAlias(null);

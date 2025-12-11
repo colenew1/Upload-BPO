@@ -190,11 +190,31 @@ async function getUnmatchedOrganizations(
     .slice(0, 50); // Top 50
 }
 
+// Canonical metric names that are considered "matched" - these don't need aliases
+const CANONICAL_METRICS = new Set([
+  'AHT', 'NPS', 'CSAT', 'FCR', 'ATTENDANCE', 'ATTRITION', 'QA SCORE',
+  'OCCUPANCY', 'SCHEDULE ADHERENCE', 'SHRINKAGE', 'SERVICE LEVEL', 'HOLD TIME',
+  'TRANSFER RATE', 'ABANDONMENT RATE', 'CONVERSION', 'SALES CONVERSION', 'RELEASE RATE'
+]);
+
+// Keywords that suggest a metric SHOULD map to a standard one
+const STANDARD_METRIC_KEYWORDS = [
+  'aht', 'nps', 'csat', 'fcr', 'attendance', 'attrition', 'qa', 'quality',
+  'occupancy', 'adherence', 'shrinkage', 'service level', 'hold time',
+  'transfer', 'abandon', 'conversion', 'sales', 'release rate'
+];
+
+function looksLikeStandardMetric(metricName: string): boolean {
+  const lower = metricName.toLowerCase();
+  return STANDARD_METRIC_KEYWORDS.some(std =>
+    lower.includes(std) || std.includes(lower.replace(/[^a-z]/g, ''))
+  );
+}
+
 async function getUnmatchedMetrics(
   supabase: ReturnType<typeof getSupabaseAdminClient>,
 ): Promise<UnmatchedMetric[]> {
-  // Get metrics where amplifai_metric equals uppercased metric_name (meaning no real mapping)
-  // We check behavioral_coaching.metric and monthly/activity_metrics.metric_name
+  // Get metrics and check if they're properly mapped
   const [behaviorMetrics, monthlyMetrics, activityMetrics] = await Promise.all([
     supabase
       .from('behavioral_coaching')
@@ -222,9 +242,11 @@ async function getUnmatchedMetrics(
       const metricName = row.metric ?? row.metric_name;
       if (!metricName || !row.amplifai_metric) continue;
 
-      // Check if it's unmatched (normalized is just uppercased original)
-      const normalized = metricName.toUpperCase().replace(/\s+/g, ' ').trim();
-      if (row.amplifai_metric !== normalized) continue; // It has a real mapping
+      // If amplifai_metric is a canonical name, it's matched - skip it
+      if (CANONICAL_METRICS.has(row.amplifai_metric)) continue;
+
+      // Only flag if it looks like a standard metric that should be mapped
+      if (!looksLikeStandardMetric(metricName)) continue;
 
       const key = metricName.toLowerCase();
       const existing = metricMap.get(key);
