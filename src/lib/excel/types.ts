@@ -17,6 +17,7 @@ export type ParsedRowBase = {
   year: number;
   amplifaiOrg: string | null;
   amplifaiMetric: string | null;
+  amplifaiIndustry: string | null;
   sourceRowNumber: number;
   sourceSheet: string;
   raw: Record<string, unknown>;
@@ -76,4 +77,33 @@ export type ParseSingleSheetResult = {
 
 /** Upload mode for the UI */
 export type UploadMode = 'combined' | 'behaviors' | 'metrics';
+
+/** Tracks a single normalization that was applied */
+export type NormalizationEntry = {
+  original: string;
+  normalized: string;
+  count: number;
+};
+
+/** Tracks an organization with no industry mapping */
+export type UnmatchedOrgEntry = {
+  orgName: string;
+  amplifaiOrg: string | null;
+  count: number;
+};
+
+/** Tracks a metric with no standardized mapping */
+export type UnmatchedMetricEntry = {
+  metricName: string;
+  count: number;
+};
+
+/** Summary of all normalizations applied during parsing */
+export type NormalizationSummary = {
+  organizations: NormalizationEntry[];
+  metrics: NormalizationEntry[];
+  industries: NormalizationEntry[];
+  unmatchedOrgs: UnmatchedOrgEntry[];
+  unmatchedMetrics: UnmatchedMetricEntry[];
+};
 

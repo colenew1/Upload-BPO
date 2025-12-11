@@ -1,4 +1,5 @@
 import type {
+  NormalizationSummary,
   ParseWorkbookMeta,
   ParsedBehaviorRow,
   ParsedMetricRow,
@@ -26,6 +27,7 @@ export type PreviewResponse = {
   meta: ParseWorkbookMeta;
   issues: string[];
   duplicates?: DuplicateCounts;
+  normalizations?: NormalizationSummary;
   file: {
     name: string;
     size: number;

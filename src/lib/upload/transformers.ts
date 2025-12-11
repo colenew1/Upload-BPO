@@ -23,6 +23,7 @@ export const toBehaviorInsert = (
   effectiveness_pct: row.effectivenessPct,
   amplifai_org: row.amplifaiOrg,
   amplifai_metric: row.amplifaiMetric,
+  amplifai_industry: row.amplifaiIndustry,
 });
 
 export const toMonthlyMetricInsert = (
@@ -39,6 +40,7 @@ export const toMonthlyMetricInsert = (
   ptg: row.ptg,
   amplifai_org: row.amplifaiOrg,
   amplifai_metric: row.amplifaiMetric,
+  amplifai_industry: row.amplifaiIndustry,
 });
 
 export const toActivityMetricInsert = (
@@ -55,5 +57,6 @@ export const toActivityMetricInsert = (
   ptg: row.ptg,
   amplifai_org: row.amplifaiOrg,
   amplifai_metric: row.amplifaiMetric,
+  amplifai_industry: row.amplifaiIndustry,
 });
 

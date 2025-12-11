@@ -1,11 +1,22 @@
 import { NextResponse } from 'next/server';
 
-import { parseWorkbook, parseSingleSheet, setDbMetricResolver } from '@/lib/excel/parseWorkbook';
+import {
+  parseWorkbook,
+  parseSingleSheet,
+  setDbMetricResolver,
+  setDbIndustryResolver,
+  initNormalizationTracking,
+  getNormalizationSummary,
+} from '@/lib/excel/parseWorkbook';
 import { getServerEnv } from '@/lib/env';
 import {
   loadMetricAliases,
   createMetricResolver,
 } from '@/lib/mappings/metricResolver';
+import {
+  loadIndustryAliases,
+  createIndustryResolver,
+} from '@/lib/mappings/industryResolver';
 import {
   computeChecksum,
   savePreview,
@@ -60,6 +71,9 @@ export async function POST(request: Request) {
     const clientOverride = formData.get('client')?.toString() ?? undefined;
     const mode = formData.get('mode')?.toString() ?? 'combined';
 
+    // Initialize normalization tracking
+    initNormalizationTracking();
+
     // Load metric aliases from DB and inject resolver before parsing
     try {
       const aliases = await loadMetricAliases();
@@ -70,6 +84,18 @@ export async function POST(request: Request) {
     } catch (err) {
       // Non-fatal: fall back to hard-coded mappings
       console.warn('[preview] Failed to load metric aliases from DB, using hard-coded:', err);
+    }
+
+    // Load industry aliases from DB and inject resolver before parsing
+    try {
+      const industryAliases = await loadIndustryAliases();
+      if (industryAliases.length > 0) {
+        const resolver = createIndustryResolver(industryAliases, clientOverride ?? null);
+        setDbIndustryResolver(resolver);
+      }
+    } catch (err) {
+      // Non-fatal: fall back to hard-coded mappings
+      console.warn('[preview] Failed to load industry aliases from DB, using hard-coded:', err);
     }
 
     let parsed;
@@ -124,8 +150,9 @@ export async function POST(request: Request) {
         }
       }
     } catch (error) {
-      // Clear resolver on parse error
+      // Clear resolvers on parse error
       setDbMetricResolver(null);
+      setDbIndustryResolver(null);
       return NextResponse.json(
         {
           error:
@@ -137,8 +164,12 @@ export async function POST(request: Request) {
       );
     }
 
-    // Clear resolver after successful parsing
+    // Clear resolvers after successful parsing
     setDbMetricResolver(null);
+    setDbIndustryResolver(null);
+
+    // Get normalization summary
+    const normalizations = getNormalizationSummary();
 
     // Check for duplicates in Supabase
     const client = clientOverride ?? filename.replace(/\.xlsx$/i, '');
@@ -203,6 +234,7 @@ export async function POST(request: Request) {
       meta: dedupedParsed.meta,
       issues: dedupedParsed.issues,
       duplicates: duplicateCounts,
+      normalizations,
       file: {
         name: filename,
         size: buffer.length,

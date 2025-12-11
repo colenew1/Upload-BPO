@@ -2,6 +2,7 @@
 
 import { useMemo } from 'react';
 
+import { NormalizationSummary } from '@/components/upload/NormalizationSummary';
 import {
   getDatasetKeys,
   usePreviewStore,
@@ -188,6 +189,8 @@ export const SelectionSummary = () => {
           </ul>
         </div>
       )}
+
+      {preview && <div className="mt-4"><NormalizationSummary /></div>}
 
       {preview && (
         <>

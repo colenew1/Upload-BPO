@@ -3,11 +3,15 @@ import { read, utils, WorkBook } from 'xlsx';
 
 import {
   DatasetStats,
+  NormalizationEntry,
+  NormalizationSummary,
   ParsedBehaviorRow,
   ParsedMetricRow,
   ParseSingleSheetResult,
   ParseWorkbookMeta,
   ParseWorkbookResult,
+  UnmatchedMetricEntry,
+  UnmatchedOrgEntry,
 } from '@/lib/excel/types';
 
 type ParseWorkbookOptions = {
@@ -192,9 +196,11 @@ const toAmplifaiOrg = (value: unknown): string | null => {
  * Supports optional DB-based resolver that takes precedence over hard-coded.
  */
 import { deriveAmplifaiMetric } from '@/lib/excel/amplifaiMappings';
+import { deriveIndustryFromOrg } from '@/lib/mappings/industryResolver';
 
-// Optional DB-based resolver - injected before parsing via setDbMetricResolver()
+// Optional DB-based resolvers - injected before parsing
 let dbMetricResolver: ((raw: unknown) => string | null) | null = null;
+let dbIndustryResolver: ((orgName: unknown) => string | null) | null = null;
 
 /**
  * Injects a DB-based metric resolver for the next parse operation.
@@ -207,6 +213,17 @@ export function setDbMetricResolver(
   dbMetricResolver = resolver;
 }
 
+/**
+ * Injects a DB-based industry resolver for the next parse operation.
+ * Call this before parseWorkbook() with a resolver created from loadIndustryAliases().
+ * Pass null to clear the resolver after parsing.
+ */
+export function setDbIndustryResolver(
+  resolver: ((orgName: unknown) => string | null) | null,
+): void {
+  dbIndustryResolver = resolver;
+}
+
 const toAmplifaiMetric = (value: unknown): string | null => {
   // Try DB resolver first (if injected)
   if (dbMetricResolver) {
@@ -215,6 +232,143 @@ const toAmplifaiMetric = (value: unknown): string | null => {
   }
   // Fall back to hard-coded mappings
   return deriveAmplifaiMetric(value);
+};
+
+/**
+ * Derive industry from organization name.
+ * Uses DB resolver first, then falls back to hard-coded mappings.
+ */
+const toAmplifaiIndustry = (orgValue: unknown): string | null => {
+  // Try DB resolver first (if injected)
+  if (dbIndustryResolver) {
+    const dbResult = dbIndustryResolver(orgValue);
+    if (dbResult) return dbResult;
+  }
+  // Fall back to hard-coded mappings
+  return deriveIndustryFromOrg(orgValue);
+};
+
+// Normalization tracking - stores original -> normalized mappings with counts
+type NormalizationTracker = {
+  organizations: Map<string, { normalized: string; count: number }>;
+  metrics: Map<string, { normalized: string; count: number }>;
+  industries: Map<string, { normalized: string; count: number }>;
+  unmatchedOrgs: Map<string, { amplifaiOrg: string | null; count: number }>;
+  unmatchedMetrics: Map<string, { count: number }>;
+};
+
+let normalizationTracker: NormalizationTracker | null = null;
+
+/**
+ * Initialize normalization tracking for a new parse operation.
+ */
+export function initNormalizationTracking(): void {
+  normalizationTracker = {
+    organizations: new Map(),
+    metrics: new Map(),
+    industries: new Map(),
+    unmatchedOrgs: new Map(),
+    unmatchedMetrics: new Map(),
+  };
+}
+
+/**
+ * Get the current normalization summary and clear the tracker.
+ */
+export function getNormalizationSummary(): NormalizationSummary {
+  if (!normalizationTracker) {
+    return { organizations: [], metrics: [], industries: [], unmatchedOrgs: [], unmatchedMetrics: [] };
+  }
+
+  const toEntries = (map: Map<string, { normalized: string; count: number }>): NormalizationEntry[] => {
+    return Array.from(map.entries())
+      .filter(([original, { normalized }]) => original.toLowerCase() !== normalized.toLowerCase())
+      .map(([original, { normalized, count }]) => ({ original, normalized, count }))
+      .sort((a, b) => b.count - a.count);
+  };
+
+  const toUnmatchedOrgEntries = (map: Map<string, { amplifaiOrg: string | null; count: number }>): UnmatchedOrgEntry[] => {
+    return Array.from(map.entries())
+      .map(([orgName, { amplifaiOrg, count }]) => ({ orgName, amplifaiOrg, count }))
+      .sort((a, b) => b.count - a.count);
+  };
+
+  const toUnmatchedMetricEntries = (map: Map<string, { count: number }>): UnmatchedMetricEntry[] => {
+    return Array.from(map.entries())
+      .map(([metricName, { count }]) => ({ metricName, count }))
+      .sort((a, b) => b.count - a.count);
+  };
+
+  const summary: NormalizationSummary = {
+    organizations: toEntries(normalizationTracker.organizations),
+    metrics: toEntries(normalizationTracker.metrics),
+    industries: toEntries(normalizationTracker.industries),
+    unmatchedOrgs: toUnmatchedOrgEntries(normalizationTracker.unmatchedOrgs),
+    unmatchedMetrics: toUnmatchedMetricEntries(normalizationTracker.unmatchedMetrics),
+  };
+
+  normalizationTracker = null;
+  return summary;
+}
+
+/**
+ * Track a normalization that was applied.
+ */
+const trackNormalization = (
+  type: 'organizations' | 'metrics' | 'industries',
+  original: string,
+  normalized: string,
+): void => {
+  if (!normalizationTracker || !original || !normalized) return;
+
+  const map = normalizationTracker[type];
+  const existing = map.get(original);
+  if (existing) {
+    existing.count += 1;
+  } else {
+    map.set(original, { normalized, count: 1 });
+  }
+};
+
+/**
+ * Track an organization that has no industry mapping.
+ */
+const trackUnmatchedOrg = (
+  orgName: string,
+  amplifaiOrg: string | null,
+): void => {
+  if (!normalizationTracker || !orgName) return;
+
+  const map = normalizationTracker.unmatchedOrgs;
+  const existing = map.get(orgName);
+  if (existing) {
+    existing.count += 1;
+  } else {
+    map.set(orgName, { amplifaiOrg, count: 1 });
+  }
+};
+
+/**
+ * Track a metric that has no standardized mapping.
+ * A metric is "unmatched" if the normalized version is just the uppercased original.
+ */
+const trackUnmatchedMetric = (
+  metricName: string,
+  amplifaiMetric: string | null,
+): void => {
+  if (!normalizationTracker || !metricName || !amplifaiMetric) return;
+
+  // If the normalized metric is just the uppercased original, it's unmatched
+  const isUnmatched = amplifaiMetric === metricName.toUpperCase().replace(/\s+/g, ' ').trim();
+  if (!isUnmatched) return;
+
+  const map = normalizationTracker.unmatchedMetrics;
+  const existing = map.get(metricName);
+  if (existing) {
+    existing.count += 1;
+  } else {
+    map.set(metricName, { count: 1 });
+  }
 };
 
 const coerceString = (value: unknown): string | null => {
@@ -502,6 +656,31 @@ const parseBehaviorRows = (
     const coachingCountValue = accessor.get('coaching_count');
     const effectivenessValue = accessor.get('effectiveness_pct');
 
+    const orgStr = coerceString(organizationValue);
+    const metricStr = coerceString(metricValue);
+    const amplifaiOrg = toAmplifaiOrg(organizationValue);
+    const amplifaiMetric = toAmplifaiMetric(metricValue);
+    const amplifaiIndustry = toAmplifaiIndustry(organizationValue);
+
+    // Track normalizations
+    if (orgStr && amplifaiOrg) {
+      trackNormalization('organizations', orgStr, amplifaiOrg);
+    }
+    if (metricStr && amplifaiMetric) {
+      trackNormalization('metrics', metricStr, amplifaiMetric);
+    }
+    if (orgStr && amplifaiIndustry) {
+      trackNormalization('industries', orgStr, amplifaiIndustry);
+    }
+    // Track orgs with no industry mapping
+    if (orgStr && !amplifaiIndustry) {
+      trackUnmatchedOrg(orgStr, amplifaiOrg);
+    }
+    // Track metrics with no standardized mapping
+    if (metricStr) {
+      trackUnmatchedMetric(metricStr, amplifaiMetric);
+    }
+
     const record: ParsedBehaviorRow = {
       id: nanoid(),
       client,
@@ -509,15 +688,16 @@ const parseBehaviorRows = (
       year,
       sourceRowNumber: index + 2,
       sourceSheet: sheetName,
-      organization: coerceString(organizationValue),
+      organization: orgStr,
       program: coerceString(programValue),
-      metric: coerceString(metricValue),
+      metric: metricStr,
       behavior: coerceString(behaviorValue),
       subBehavior: coerceString(subBehaviorValue),
       coachingCount: toNumber(coachingCountValue),
       effectivenessPct: toNumber(effectivenessValue),
-      amplifaiOrg: toAmplifaiOrg(organizationValue),
-      amplifaiMetric: toAmplifaiMetric(metricValue),
+      amplifaiOrg,
+      amplifaiMetric,
+      amplifaiIndustry,
       raw: row,
     };
 
@@ -567,6 +747,30 @@ const parseMetricRows = (
     const goalValue = accessor.get('goal');
     const ptgValue = accessor.get('ptg');
     const programStr = coerceString(programValue);
+    const orgStr = coerceString(organizationValue);
+    const metricStr = coerceString(metricValue);
+    const amplifaiOrg = toAmplifaiOrg(organizationValue);
+    const amplifaiMetric = toAmplifaiMetric(metricValue);
+    const amplifaiIndustry = toAmplifaiIndustry(organizationValue);
+
+    // Track normalizations
+    if (orgStr && amplifaiOrg) {
+      trackNormalization('organizations', orgStr, amplifaiOrg);
+    }
+    if (metricStr && amplifaiMetric) {
+      trackNormalization('metrics', metricStr, amplifaiMetric);
+    }
+    if (orgStr && amplifaiIndustry) {
+      trackNormalization('industries', orgStr, amplifaiIndustry);
+    }
+    // Track orgs with no industry mapping
+    if (orgStr && !amplifaiIndustry) {
+      trackUnmatchedOrg(orgStr, amplifaiOrg);
+    }
+    // Track metrics with no standardized mapping
+    if (metricStr) {
+      trackUnmatchedMetric(metricStr, amplifaiMetric);
+    }
 
     const record: ParsedMetricRow = {
       id: nanoid(),
@@ -575,15 +779,16 @@ const parseMetricRows = (
       year,
       sourceRowNumber: index + 2,
       sourceSheet: sheetName,
-      organization: coerceString(organizationValue),
+      organization: orgStr,
       program: programStr,
-      metricName: coerceString(metricValue),
+      metricName: metricStr,
       actual: toNumber(actualValue),
       goal: toNumber(goalValue),
       ptg: toNumber(ptgValue),
       isActivityMetric: programStr?.toUpperCase() === 'ACTIVITY METRICS',
-      amplifaiOrg: toAmplifaiOrg(organizationValue),
-      amplifaiMetric: toAmplifaiMetric(metricValue),
+      amplifaiOrg,
+      amplifaiMetric,
+      amplifaiIndustry,
       raw: row,
     };
 

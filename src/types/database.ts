@@ -17,6 +17,7 @@ export type BehavioralCoachingRow = {
   effectiveness_pct: number | null;
   amplifai_org: string | null;
   amplifai_metric: string | null;
+  amplifai_industry: string | null;
 };
 
 export type BehavioralCoachingInsert = Omit<
@@ -41,6 +42,7 @@ export type MonthlyMetricRow = {
   ptg: number | null;
   amplifai_org: string | null;
   amplifai_metric: string | null;
+  amplifai_industry: string | null;
 };
 
 export type MonthlyMetricInsert = Omit<
@@ -77,6 +79,29 @@ export type MetricAliasInsert = Omit<
   updated_at?: Timestamp;
 };
 
+// Industry alias mapping table - maps organization names to standardized industries
+export type IndustryAliasRow = {
+  id: string;
+  canonical_industry: string;
+  alias: string;
+  match_type: 'exact' | 'contains' | 'regex';
+  case_sensitive: boolean;
+  priority: number;
+  client: string | null;
+  notes: string | null;
+  created_at: Timestamp;
+  updated_at: Timestamp;
+};
+
+export type IndustryAliasInsert = Omit<
+  IndustryAliasRow,
+  'id' | 'created_at' | 'updated_at'
+> & {
+  id?: string;
+  created_at?: Timestamp;
+  updated_at?: Timestamp;
+};
+
 export type Database = {
   public: {
     Tables: {
@@ -102,6 +127,12 @@ export type Database = {
         Row: MetricAliasRow;
         Insert: MetricAliasInsert;
         Update: Partial<MetricAliasInsert>;
+        Relationships: [];
+      };
+      industry_aliases: {
+        Row: IndustryAliasRow;
+        Insert: IndustryAliasInsert;
+        Update: Partial<IndustryAliasInsert>;
         Relationships: [];
       };
     };
