@@ -431,7 +431,7 @@ export default function HealthPage() {
                               <span className="text-sm text-white/50">Saving...</span>
                             ) : (
                               <select
-                                className="rounded-lg border border-white/20 bg-white/10 px-3 py-2 text-sm text-white"
+                                className="rounded-lg border border-white/20 bg-slate-800 px-3 py-2 text-sm text-white [&>option]:bg-slate-800 [&>option]:text-white"
                                 defaultValue=""
                                 onChange={(e) => {
                                   if (e.target.value) {
@@ -439,11 +439,11 @@ export default function HealthPage() {
                                   }
                                 }}
                               >
-                                <option value="" disabled>
+                                <option value="" disabled className="bg-slate-800 text-white">
                                   Assign Industry...
                                 </option>
                                 {COMMON_INDUSTRIES.map((ind) => (
-                                  <option key={ind} value={ind}>
+                                  <option key={ind} value={ind} className="bg-slate-800 text-white">
                                     {ind}
                                   </option>
                                 ))}
@@ -495,7 +495,7 @@ export default function HealthPage() {
                               <span className="text-sm text-white/50">Saving...</span>
                             ) : (
                               <select
-                                className="rounded-lg border border-white/20 bg-white/10 px-3 py-2 text-sm text-white"
+                                className="rounded-lg border border-white/20 bg-slate-800 px-3 py-2 text-sm text-white [&>option]:bg-slate-800 [&>option]:text-white"
                                 defaultValue=""
                                 onChange={(e) => {
                                   if (e.target.value) {
@@ -503,11 +503,11 @@ export default function HealthPage() {
                                   }
                                 }}
                               >
-                                <option value="" disabled>
+                                <option value="" disabled className="bg-slate-800 text-white">
                                   Assign Metric...
                                 </option>
                                 {COMMON_METRICS.map((m) => (
-                                  <option key={m} value={m}>
+                                  <option key={m} value={m} className="bg-slate-800 text-white">
                                     {m}
                                   </option>
                                 ))}
