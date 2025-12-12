@@ -785,7 +785,7 @@ const parseMetricRows = (
       actual: toNumber(actualValue),
       goal: toNumber(goalValue),
       ptg: toNumber(ptgValue),
-      isActivityMetric: programStr?.toUpperCase() === 'ACTIVITY METRICS',
+      isActivityMetric: false, // Activity metrics not supported via upload console - they require special handling
       amplifaiOrg,
       amplifaiMetric,
       amplifaiIndustry,

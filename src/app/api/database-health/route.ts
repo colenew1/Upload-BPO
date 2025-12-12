@@ -64,11 +64,10 @@ export async function GET() {
   try {
     const supabase = getSupabaseAdminClient();
 
-    // Get table statistics
-    const [behaviorStats, monthlyStats, activityStats] = await Promise.all([
+    // Get table statistics (activity_metrics excluded - not populated via upload console)
+    const [behaviorStats, monthlyStats] = await Promise.all([
       getTableStats(supabase, 'behavioral_coaching'),
       getTableStats(supabase, 'monthly_metrics'),
-      getTableStats(supabase, 'activity_metrics'),
     ]);
 
     // Get organizations without industry mapping
@@ -84,7 +83,6 @@ export async function GET() {
     const qualityIssues = await getDataQualityIssues(supabase, [
       behaviorStats,
       monthlyStats,
-      activityStats,
     ]);
 
     // Get wonky numbers (scan for suspicious values in database)
@@ -99,7 +97,7 @@ export async function GET() {
     return NextResponse.json({
       generatedAt: new Date().toISOString(),
       summary: {
-        totalRows: behaviorStats.totalRows + monthlyStats.totalRows + activityStats.totalRows,
+        totalRows: behaviorStats.totalRows + monthlyStats.totalRows,
         tablesHealthy: qualityIssues.filter((i) => i.severity === 'high').length === 0,
         issueCount: qualityIssues.length,
         unmatchedOrgCount: unmatchedOrgs.length,
@@ -108,7 +106,7 @@ export async function GET() {
         metricAliasCount: metricAliasResult.count ?? 0,
         wonkyNumberCount: wonkyNumbers.length,
       },
-      tables: [behaviorStats, monthlyStats, activityStats],
+      tables: [behaviorStats, monthlyStats],
       unmatchedOrgs,
       unmatchedMetrics,
       potentialDuplicates,
@@ -154,7 +152,7 @@ async function getUnmatchedOrganizations(
   supabase: ReturnType<typeof getSupabaseAdminClient>,
 ): Promise<UnmatchedOrg[]> {
   // Get orgs without industry from all tables
-  const [behaviorOrgs, monthlyOrgs, activityOrgs] = await Promise.all([
+  const [behaviorOrgs, monthlyOrgs] = await Promise.all([
     supabase
       .from('behavioral_coaching')
       .select('organization, amplifai_org')
@@ -162,11 +160,6 @@ async function getUnmatchedOrganizations(
       .not('organization', 'is', null),
     supabase
       .from('monthly_metrics')
-      .select('organization, amplifai_org')
-      .is('amplifai_industry', null)
-      .not('organization', 'is', null),
-    supabase
-      .from('activity_metrics')
       .select('organization, amplifai_org')
       .is('amplifai_industry', null)
       .not('organization', 'is', null),
@@ -199,7 +192,6 @@ async function getUnmatchedOrganizations(
 
   processRows(behaviorOrgs.data, 'behavioral_coaching');
   processRows(monthlyOrgs.data, 'monthly_metrics');
-  processRows(activityOrgs.data, 'activity_metrics');
 
   return Array.from(orgMap.entries())
     .map(([org, data]) => ({
@@ -237,17 +229,13 @@ async function getUnmatchedMetrics(
   supabase: ReturnType<typeof getSupabaseAdminClient>,
 ): Promise<UnmatchedMetric[]> {
   // Get metrics and check if they're properly mapped
-  const [behaviorMetrics, monthlyMetrics, activityMetrics] = await Promise.all([
+  const [behaviorMetrics, monthlyMetrics] = await Promise.all([
     supabase
       .from('behavioral_coaching')
       .select('metric, amplifai_metric')
       .not('metric', 'is', null),
     supabase
       .from('monthly_metrics')
-      .select('metric_name, amplifai_metric')
-      .not('metric_name', 'is', null),
-    supabase
-      .from('activity_metrics')
       .select('metric_name, amplifai_metric')
       .not('metric_name', 'is', null),
   ]);
@@ -283,7 +271,6 @@ async function getUnmatchedMetrics(
 
   processMetrics(behaviorMetrics.data, 'behavioral_coaching');
   processMetrics(monthlyMetrics.data, 'monthly_metrics');
-  processMetrics(activityMetrics.data, 'activity_metrics');
 
   return Array.from(metricMap.entries())
     .map(([metric, data]) => ({
@@ -613,87 +600,7 @@ async function scanForWonkyNumbers(
     }
   }
 
-  // Scan activity_metrics for wonky values
-  const { data: activityData } = await supabase
-    .from('activity_metrics')
-    .select('id, client, organization, metric_name, month, year, actual, goal, ptg, created_at')
-    .or(`actual.lt.0,goal.lt.0,ptg.lt.0,ptg.gt.${WONKY_THRESHOLDS.maxPtg}`)
-    .limit(100);
-
-  for (const row of activityData ?? []) {
-    if (row.actual !== null && row.actual < 0) {
-      wonkyNumbers.push({
-        id: `activity-${row.id}-actual`,
-        source_table: 'activity_metrics',
-        source_id: row.id,
-        client: row.client,
-        organization: row.organization,
-        metric_name: row.metric_name,
-        month: row.month,
-        year: row.year,
-        field_name: 'actual',
-        original_value: row.actual,
-        issue_type: 'negative',
-        notes: `Actual value is negative (${row.actual})`,
-        resolved: false,
-        created_at: row.created_at,
-      });
-    }
-    if (row.goal !== null && row.goal < 0) {
-      wonkyNumbers.push({
-        id: `activity-${row.id}-goal`,
-        source_table: 'activity_metrics',
-        source_id: row.id,
-        client: row.client,
-        organization: row.organization,
-        metric_name: row.metric_name,
-        month: row.month,
-        year: row.year,
-        field_name: 'goal',
-        original_value: row.goal,
-        issue_type: 'negative',
-        notes: `Goal value is negative (${row.goal})`,
-        resolved: false,
-        created_at: row.created_at,
-      });
-    }
-    if (row.ptg !== null && row.ptg < 0) {
-      wonkyNumbers.push({
-        id: `activity-${row.id}-ptg`,
-        source_table: 'activity_metrics',
-        source_id: row.id,
-        client: row.client,
-        organization: row.organization,
-        metric_name: row.metric_name,
-        month: row.month,
-        year: row.year,
-        field_name: 'ptg',
-        original_value: row.ptg,
-        issue_type: 'negative',
-        notes: `PTG is negative (${row.ptg}%)`,
-        resolved: false,
-        created_at: row.created_at,
-      });
-    }
-    if (row.ptg !== null && row.ptg > WONKY_THRESHOLDS.maxPtg) {
-      wonkyNumbers.push({
-        id: `activity-${row.id}-ptg`,
-        source_table: 'activity_metrics',
-        source_id: row.id,
-        client: row.client,
-        organization: row.organization,
-        metric_name: row.metric_name,
-        month: row.month,
-        year: row.year,
-        field_name: 'ptg',
-        original_value: row.ptg,
-        issue_type: 'too_large',
-        notes: `PTG is unusually high (${row.ptg}%)`,
-        resolved: false,
-        created_at: row.created_at,
-      });
-    }
-  }
+  // Note: activity_metrics excluded - not populated via upload console
 
   return wonkyNumbers;
 }
