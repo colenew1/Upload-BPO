@@ -40,6 +40,23 @@ type DataQualityIssue = {
   suggestion?: string;
 };
 
+type WonkyNumber = {
+  id: string;
+  source_table: string;
+  source_id: string | null;
+  client: string;
+  organization: string | null;
+  metric_name: string | null;
+  month: string;
+  year: number;
+  field_name: string;
+  original_value: number | null;
+  issue_type: string;
+  notes: string | null;
+  resolved: boolean;
+  created_at: string;
+};
+
 type HealthReport = {
   generatedAt: string;
   summary: {
@@ -50,12 +67,14 @@ type HealthReport = {
     unmatchedMetricCount: number;
     industryAliasCount: number;
     metricAliasCount: number;
+    wonkyNumberCount: number;
   };
   tables: TableStats[];
   unmatchedOrgs: UnmatchedOrg[];
   unmatchedMetrics: UnmatchedMetric[];
   potentialDuplicates: PotentialDuplicate[];
   qualityIssues: DataQualityIssue[];
+  wonkyNumbers: WonkyNumber[];
 };
 
 const COMMON_INDUSTRIES = [
@@ -94,11 +113,34 @@ const COMMON_METRICS = [
 
 const tabs = [
   { id: 'overview', label: 'Overview' },
+  { id: 'wonky', label: 'Wonky Numbers' },
   { id: 'unmatched', label: 'Unmatched Industries' },
   { id: 'unmatched-metrics', label: 'Unmatched Metrics' },
   { id: 'duplicates', label: 'Potential Duplicates' },
   { id: 'issues', label: 'Quality Issues' },
 ] as const;
+
+const ISSUE_TYPE_LABELS: Record<string, string> = {
+  negative: 'Negative',
+  zero: 'Zero',
+  too_large: 'Too Large',
+  percentage_over_100: 'Over 100%',
+  suspicious_outlier: 'Outlier',
+};
+
+const ISSUE_TYPE_COLORS: Record<string, string> = {
+  negative: 'bg-rose-500/20 text-rose-200 border-rose-500/40',
+  zero: 'bg-amber-500/20 text-amber-200 border-amber-500/40',
+  too_large: 'bg-purple-500/20 text-purple-200 border-purple-500/40',
+  percentage_over_100: 'bg-orange-500/20 text-orange-200 border-orange-500/40',
+  suspicious_outlier: 'bg-blue-500/20 text-blue-200 border-blue-500/40',
+};
+
+const TABLE_LABELS: Record<string, string> = {
+  behavioral_coaching: 'Behaviors',
+  monthly_metrics: 'Monthly',
+  activity_metrics: 'Activity',
+};
 
 type TabId = (typeof tabs)[number]['id'];
 
@@ -111,6 +153,7 @@ export default function HealthPage() {
   const [savingMetricAlias, setSavingMetricAlias] = useState<string | null>(null);
   const [backfilling, setBackfilling] = useState(false);
   const [backfillResult, setBackfillResult] = useState<string | null>(null);
+  const [resolvingWonky, setResolvingWonky] = useState<string | null>(null);
 
   const fetchReport = useCallback(async () => {
     setLoading(true);
@@ -207,6 +250,42 @@ export default function HealthPage() {
     }
   };
 
+  const handleResolveWonky = async (wonky: WonkyNumber) => {
+    if (!wonky.source_id) {
+      alert('Cannot resolve: missing source_id');
+      return;
+    }
+
+    if (!confirm(`Set ${wonky.field_name} to NULL for this record?\n\nThis will permanently change the value from ${wonky.original_value} to null.`)) {
+      return;
+    }
+
+    setResolvingWonky(wonky.id);
+    try {
+      const response = await fetch('/api/wonky-numbers', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          source_table: wonky.source_table,
+          source_id: wonky.source_id,
+          field_name: wonky.field_name,
+        }),
+      });
+
+      if (!response.ok) {
+        const data = await response.json();
+        throw new Error(data.error || 'Failed to resolve');
+      }
+
+      // Refresh report to remove the resolved item
+      await fetchReport();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Failed to resolve');
+    } finally {
+      setResolvingWonky(null);
+    }
+  };
+
   const formatDate = (dateStr: string | null) => {
     if (!dateStr) return 'Never';
     return new Date(dateStr).toLocaleDateString('en-US', {
@@ -267,10 +346,16 @@ export default function HealthPage() {
 
         {/* Summary Cards */}
         {report && (
-          <div className="mb-8 grid gap-4 md:grid-cols-3 lg:grid-cols-6">
+          <div className="mb-8 grid gap-4 md:grid-cols-4 lg:grid-cols-7">
             <div className="rounded-xl border border-white/10 bg-white/5 p-4">
               <p className="text-xs uppercase tracking-wide text-white/50">Total Rows</p>
               <p className="mt-1 text-2xl font-bold">{report.summary.totalRows.toLocaleString()}</p>
+            </div>
+            <div className="rounded-xl border border-white/10 bg-white/5 p-4">
+              <p className="text-xs uppercase tracking-wide text-white/50">Wonky Numbers</p>
+              <p className={`mt-1 text-2xl font-bold ${report.summary.wonkyNumberCount > 0 ? 'text-rose-400' : 'text-emerald-400'}`}>
+                {report.summary.wonkyNumberCount}
+              </p>
             </div>
             <div className="rounded-xl border border-white/10 bg-white/5 p-4">
               <p className="text-xs uppercase tracking-wide text-white/50">Industry Aliases</p>
@@ -314,6 +399,11 @@ export default function HealthPage() {
               }`}
             >
               {tab.label}
+              {tab.id === 'wonky' && report && report.wonkyNumbers.length > 0 && (
+                <span className="ml-2 rounded-full bg-rose-500 px-2 py-0.5 text-xs text-rose-950">
+                  {report.wonkyNumbers.length}
+                </span>
+              )}
               {tab.id === 'unmatched' && report && report.unmatchedOrgs.length > 0 && (
                 <span className="ml-2 rounded-full bg-amber-500 px-2 py-0.5 text-xs text-amber-950">
                   {report.unmatchedOrgs.length}
@@ -395,6 +485,101 @@ export default function HealthPage() {
                   <p className="text-xs text-white/40">
                     Last generated: {formatDate(report.generatedAt)}
                   </p>
+                </div>
+              )}
+
+              {/* Wonky Numbers Tab */}
+              {activeTab === 'wonky' && (
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between">
+                    <h2 className="text-lg font-semibold">Suspicious Values Detected</h2>
+                    <p className="text-sm text-white/50">
+                      Review negative numbers, percentages over 100%, and unusually large values
+                    </p>
+                  </div>
+
+                  {report.wonkyNumbers.length === 0 ? (
+                    <div className="py-12 text-center">
+                      <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-emerald-400/20">
+                        <svg className="h-6 w-6 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                        </svg>
+                      </div>
+                      <p className="text-white/70">No wonky numbers detected! Your data looks clean.</p>
+                    </div>
+                  ) : (
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-sm">
+                        <thead>
+                          <tr className="border-b border-white/10 text-left text-white/50">
+                            <th className="pb-3 pr-4 font-medium">Source</th>
+                            <th className="pb-3 pr-4 font-medium">Client</th>
+                            <th className="pb-3 pr-4 font-medium">Organization</th>
+                            <th className="pb-3 pr-4 font-medium">Metric</th>
+                            <th className="pb-3 pr-4 font-medium">Period</th>
+                            <th className="pb-3 pr-4 font-medium">Field</th>
+                            <th className="pb-3 pr-4 font-medium">Value</th>
+                            <th className="pb-3 pr-4 font-medium">Issue</th>
+                            <th className="pb-3 font-medium">Action</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {report.wonkyNumbers.map((row) => (
+                            <tr key={row.id} className="border-b border-white/5">
+                              <td className="py-3 pr-4">
+                                <span className="rounded-lg bg-white/10 px-2 py-1 text-xs">
+                                  {TABLE_LABELS[row.source_table] ?? row.source_table}
+                                </span>
+                              </td>
+                              <td className="py-3 pr-4 text-white/80">{row.client}</td>
+                              <td className="py-3 pr-4 text-white/80 max-w-[150px] truncate" title={row.organization ?? undefined}>
+                                {row.organization ?? '—'}
+                              </td>
+                              <td className="py-3 pr-4 text-white/80 max-w-[150px] truncate" title={row.metric_name ?? undefined}>
+                                {row.metric_name ?? '—'}
+                              </td>
+                              <td className="py-3 pr-4 text-white/60">
+                                {row.month} {row.year}
+                              </td>
+                              <td className="py-3 pr-4">
+                                <code className="rounded bg-white/10 px-2 py-0.5 text-xs">
+                                  {row.field_name}
+                                </code>
+                              </td>
+                              <td className="py-3 pr-4 font-mono text-rose-300">
+                                {row.original_value?.toLocaleString() ?? 'null'}
+                              </td>
+                              <td className="py-3 pr-4">
+                                <span
+                                  className={`rounded-lg border px-2 py-1 text-xs ${
+                                    ISSUE_TYPE_COLORS[row.issue_type] ?? 'bg-white/10 border-white/20'
+                                  }`}
+                                >
+                                  {ISSUE_TYPE_LABELS[row.issue_type] ?? row.issue_type}
+                                </span>
+                              </td>
+                              <td className="py-3">
+                                <button
+                                  type="button"
+                                  onClick={() => handleResolveWonky(row)}
+                                  disabled={resolvingWonky === row.id || !row.source_id}
+                                  className="rounded-lg bg-rose-500/20 px-3 py-1 text-xs font-medium text-rose-200 hover:bg-rose-500/30 disabled:opacity-50 disabled:cursor-not-allowed"
+                                >
+                                  {resolvingWonky === row.id ? 'Setting...' : 'Set to Null'}
+                                </button>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+
+                  {report.wonkyNumbers.length > 0 && (
+                    <p className="text-xs text-white/40">
+                      Click &quot;Set to Null&quot; to clear the wonky value from the database.
+                    </p>
+                  )}
                 </div>
               )}
 

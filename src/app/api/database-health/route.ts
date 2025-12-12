@@ -43,6 +43,23 @@ type DataQualityIssue = {
   suggestion?: string;
 };
 
+type WonkyNumber = {
+  id: string;
+  source_table: string;
+  source_id: string | null;
+  client: string;
+  organization: string | null;
+  metric_name: string | null;
+  month: string;
+  year: number;
+  field_name: string;
+  original_value: number | null;
+  issue_type: string;
+  notes: string | null;
+  resolved: boolean;
+  created_at: string;
+};
+
 export async function GET() {
   try {
     const supabase = getSupabaseAdminClient();
@@ -70,6 +87,9 @@ export async function GET() {
       activityStats,
     ]);
 
+    // Get wonky numbers (scan for suspicious values in database)
+    const wonkyNumbers = await scanForWonkyNumbers(supabase);
+
     // Get alias counts
     const [industryAliasResult, metricAliasResult] = await Promise.all([
       supabase.from('industry_aliases').select('*', { count: 'exact', head: true }),
@@ -86,12 +106,14 @@ export async function GET() {
         unmatchedMetricCount: unmatchedMetrics.length,
         industryAliasCount: industryAliasResult.count ?? 0,
         metricAliasCount: metricAliasResult.count ?? 0,
+        wonkyNumberCount: wonkyNumbers.length,
       },
       tables: [behaviorStats, monthlyStats, activityStats],
       unmatchedOrgs,
       unmatchedMetrics,
       potentialDuplicates,
       qualityIssues,
+      wonkyNumbers,
     });
   } catch (error) {
     console.error('[database-health] Error:', error);
@@ -411,4 +433,267 @@ async function getDataQualityIssues(
     const severityOrder = { high: 0, medium: 1, low: 2 };
     return severityOrder[a.severity] - severityOrder[b.severity];
   });
+}
+
+// Thresholds for detecting wonky numbers
+const WONKY_THRESHOLDS = {
+  maxCoachingCount: 10000,
+  maxEffectivenessPercent: 100,
+  maxActual: 1000000,
+  maxGoal: 1000000,
+  maxPtg: 1000,
+};
+
+async function scanForWonkyNumbers(
+  supabase: ReturnType<typeof getSupabaseAdminClient>,
+): Promise<WonkyNumber[]> {
+  const wonkyNumbers: WonkyNumber[] = [];
+
+  // Scan behavioral_coaching for wonky values
+  const { data: behaviorData } = await supabase
+    .from('behavioral_coaching')
+    .select('id, client, organization, metric, month, year, coaching_count, effectiveness_pct, created_at')
+    .or(`coaching_count.lt.0,coaching_count.gt.${WONKY_THRESHOLDS.maxCoachingCount},effectiveness_pct.lt.0,effectiveness_pct.gt.${WONKY_THRESHOLDS.maxEffectivenessPercent}`)
+    .limit(100);
+
+  for (const row of behaviorData ?? []) {
+    if (row.coaching_count !== null && row.coaching_count < 0) {
+      wonkyNumbers.push({
+        id: `behavior-${row.id}-coaching_count`,
+        source_table: 'behavioral_coaching',
+        source_id: row.id,
+        client: row.client,
+        organization: row.organization,
+        metric_name: row.metric,
+        month: row.month,
+        year: row.year,
+        field_name: 'coaching_count',
+        original_value: row.coaching_count,
+        issue_type: 'negative',
+        notes: `Coaching count is negative (${row.coaching_count})`,
+        resolved: false,
+        created_at: row.created_at,
+      });
+    }
+    if (row.coaching_count !== null && row.coaching_count > WONKY_THRESHOLDS.maxCoachingCount) {
+      wonkyNumbers.push({
+        id: `behavior-${row.id}-coaching_count`,
+        source_table: 'behavioral_coaching',
+        source_id: row.id,
+        client: row.client,
+        organization: row.organization,
+        metric_name: row.metric,
+        month: row.month,
+        year: row.year,
+        field_name: 'coaching_count',
+        original_value: row.coaching_count,
+        issue_type: 'too_large',
+        notes: `Coaching count is unusually large (${row.coaching_count.toLocaleString()})`,
+        resolved: false,
+        created_at: row.created_at,
+      });
+    }
+    if (row.effectiveness_pct !== null && row.effectiveness_pct < 0) {
+      wonkyNumbers.push({
+        id: `behavior-${row.id}-effectiveness_pct`,
+        source_table: 'behavioral_coaching',
+        source_id: row.id,
+        client: row.client,
+        organization: row.organization,
+        metric_name: row.metric,
+        month: row.month,
+        year: row.year,
+        field_name: 'effectiveness_pct',
+        original_value: row.effectiveness_pct,
+        issue_type: 'negative',
+        notes: `Effectiveness is negative (${row.effectiveness_pct}%)`,
+        resolved: false,
+        created_at: row.created_at,
+      });
+    }
+    if (row.effectiveness_pct !== null && row.effectiveness_pct > WONKY_THRESHOLDS.maxEffectivenessPercent) {
+      wonkyNumbers.push({
+        id: `behavior-${row.id}-effectiveness_pct`,
+        source_table: 'behavioral_coaching',
+        source_id: row.id,
+        client: row.client,
+        organization: row.organization,
+        metric_name: row.metric,
+        month: row.month,
+        year: row.year,
+        field_name: 'effectiveness_pct',
+        original_value: row.effectiveness_pct,
+        issue_type: 'percentage_over_100',
+        notes: `Effectiveness exceeds 100% (${row.effectiveness_pct}%)`,
+        resolved: false,
+        created_at: row.created_at,
+      });
+    }
+  }
+
+  // Scan monthly_metrics for wonky values
+  const { data: monthlyData } = await supabase
+    .from('monthly_metrics')
+    .select('id, client, organization, metric_name, month, year, actual, goal, ptg, created_at')
+    .or(`actual.lt.0,goal.lt.0,ptg.lt.0,ptg.gt.${WONKY_THRESHOLDS.maxPtg}`)
+    .limit(100);
+
+  for (const row of monthlyData ?? []) {
+    if (row.actual !== null && row.actual < 0) {
+      wonkyNumbers.push({
+        id: `monthly-${row.id}-actual`,
+        source_table: 'monthly_metrics',
+        source_id: row.id,
+        client: row.client,
+        organization: row.organization,
+        metric_name: row.metric_name,
+        month: row.month,
+        year: row.year,
+        field_name: 'actual',
+        original_value: row.actual,
+        issue_type: 'negative',
+        notes: `Actual value is negative (${row.actual})`,
+        resolved: false,
+        created_at: row.created_at,
+      });
+    }
+    if (row.goal !== null && row.goal < 0) {
+      wonkyNumbers.push({
+        id: `monthly-${row.id}-goal`,
+        source_table: 'monthly_metrics',
+        source_id: row.id,
+        client: row.client,
+        organization: row.organization,
+        metric_name: row.metric_name,
+        month: row.month,
+        year: row.year,
+        field_name: 'goal',
+        original_value: row.goal,
+        issue_type: 'negative',
+        notes: `Goal value is negative (${row.goal})`,
+        resolved: false,
+        created_at: row.created_at,
+      });
+    }
+    if (row.ptg !== null && row.ptg < 0) {
+      wonkyNumbers.push({
+        id: `monthly-${row.id}-ptg`,
+        source_table: 'monthly_metrics',
+        source_id: row.id,
+        client: row.client,
+        organization: row.organization,
+        metric_name: row.metric_name,
+        month: row.month,
+        year: row.year,
+        field_name: 'ptg',
+        original_value: row.ptg,
+        issue_type: 'negative',
+        notes: `PTG is negative (${row.ptg}%)`,
+        resolved: false,
+        created_at: row.created_at,
+      });
+    }
+    if (row.ptg !== null && row.ptg > WONKY_THRESHOLDS.maxPtg) {
+      wonkyNumbers.push({
+        id: `monthly-${row.id}-ptg`,
+        source_table: 'monthly_metrics',
+        source_id: row.id,
+        client: row.client,
+        organization: row.organization,
+        metric_name: row.metric_name,
+        month: row.month,
+        year: row.year,
+        field_name: 'ptg',
+        original_value: row.ptg,
+        issue_type: 'too_large',
+        notes: `PTG is unusually high (${row.ptg}%)`,
+        resolved: false,
+        created_at: row.created_at,
+      });
+    }
+  }
+
+  // Scan activity_metrics for wonky values
+  const { data: activityData } = await supabase
+    .from('activity_metrics')
+    .select('id, client, organization, metric_name, month, year, actual, goal, ptg, created_at')
+    .or(`actual.lt.0,goal.lt.0,ptg.lt.0,ptg.gt.${WONKY_THRESHOLDS.maxPtg}`)
+    .limit(100);
+
+  for (const row of activityData ?? []) {
+    if (row.actual !== null && row.actual < 0) {
+      wonkyNumbers.push({
+        id: `activity-${row.id}-actual`,
+        source_table: 'activity_metrics',
+        source_id: row.id,
+        client: row.client,
+        organization: row.organization,
+        metric_name: row.metric_name,
+        month: row.month,
+        year: row.year,
+        field_name: 'actual',
+        original_value: row.actual,
+        issue_type: 'negative',
+        notes: `Actual value is negative (${row.actual})`,
+        resolved: false,
+        created_at: row.created_at,
+      });
+    }
+    if (row.goal !== null && row.goal < 0) {
+      wonkyNumbers.push({
+        id: `activity-${row.id}-goal`,
+        source_table: 'activity_metrics',
+        source_id: row.id,
+        client: row.client,
+        organization: row.organization,
+        metric_name: row.metric_name,
+        month: row.month,
+        year: row.year,
+        field_name: 'goal',
+        original_value: row.goal,
+        issue_type: 'negative',
+        notes: `Goal value is negative (${row.goal})`,
+        resolved: false,
+        created_at: row.created_at,
+      });
+    }
+    if (row.ptg !== null && row.ptg < 0) {
+      wonkyNumbers.push({
+        id: `activity-${row.id}-ptg`,
+        source_table: 'activity_metrics',
+        source_id: row.id,
+        client: row.client,
+        organization: row.organization,
+        metric_name: row.metric_name,
+        month: row.month,
+        year: row.year,
+        field_name: 'ptg',
+        original_value: row.ptg,
+        issue_type: 'negative',
+        notes: `PTG is negative (${row.ptg}%)`,
+        resolved: false,
+        created_at: row.created_at,
+      });
+    }
+    if (row.ptg !== null && row.ptg > WONKY_THRESHOLDS.maxPtg) {
+      wonkyNumbers.push({
+        id: `activity-${row.id}-ptg`,
+        source_table: 'activity_metrics',
+        source_id: row.id,
+        client: row.client,
+        organization: row.organization,
+        metric_name: row.metric_name,
+        month: row.month,
+        year: row.year,
+        field_name: 'ptg',
+        original_value: row.ptg,
+        issue_type: 'too_large',
+        notes: `PTG is unusually high (${row.ptg}%)`,
+        resolved: false,
+        created_at: row.created_at,
+      });
+    }
+  }
+
+  return wonkyNumbers;
 }

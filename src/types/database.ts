@@ -102,6 +102,36 @@ export type IndustryAliasInsert = Omit<
   updated_at?: Timestamp;
 };
 
+// Wonky numbers table - stores suspicious/outlier values for review
+export type WonkyNumberRow = {
+  id: string;
+  created_at: Timestamp;
+  source_table: 'behavioral_coaching' | 'monthly_metrics' | 'activity_metrics';
+  source_id: string | null;
+  client: string;
+  organization: string | null;
+  program: string | null;
+  metric_name: string | null;
+  month: string;
+  year: number;
+  field_name: string;
+  original_value: number | null;
+  issue_type: 'negative' | 'zero' | 'too_large' | 'percentage_over_100' | 'suspicious_outlier';
+  notes: string | null;
+  resolved: boolean;
+  resolved_at: Timestamp | null;
+  resolved_by: string | null;
+};
+
+export type WonkyNumberInsert = Omit<
+  WonkyNumberRow,
+  'id' | 'created_at' | 'resolved_at'
+> & {
+  id?: string;
+  created_at?: Timestamp;
+  resolved_at?: Timestamp | null;
+};
+
 export type Database = {
   public: {
     Tables: {
@@ -133,6 +163,12 @@ export type Database = {
         Row: IndustryAliasRow;
         Insert: IndustryAliasInsert;
         Update: Partial<IndustryAliasInsert>;
+        Relationships: [];
+      };
+      wonky_numbers: {
+        Row: WonkyNumberRow;
+        Insert: WonkyNumberInsert;
+        Update: Partial<WonkyNumberInsert>;
         Relationships: [];
       };
     };
