@@ -154,6 +154,8 @@ export default function HealthPage() {
   const [backfilling, setBackfilling] = useState(false);
   const [backfillResult, setBackfillResult] = useState<string | null>(null);
   const [resolvingWonky, setResolvingWonky] = useState<string | null>(null);
+  const [selectedWonky, setSelectedWonky] = useState<Set<string>>(new Set());
+  const [resolvingMultiple, setResolvingMultiple] = useState(false);
 
   const fetchReport = useCallback(async () => {
     setLoading(true);
@@ -283,6 +285,73 @@ export default function HealthPage() {
       alert(err instanceof Error ? err.message : 'Failed to resolve');
     } finally {
       setResolvingWonky(null);
+    }
+  };
+
+  const handleToggleWonkySelect = (id: string) => {
+    setSelectedWonky((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  };
+
+  const handleSelectAllWonky = () => {
+    if (!report) return;
+    const allIds = report.wonkyNumbers.filter((w) => w.source_id).map((w) => w.id);
+    if (selectedWonky.size === allIds.length) {
+      setSelectedWonky(new Set());
+    } else {
+      setSelectedWonky(new Set(allIds));
+    }
+  };
+
+  const handleResolveSelected = async () => {
+    if (!report || selectedWonky.size === 0) return;
+
+    const selectedItems = report.wonkyNumbers.filter((w) => selectedWonky.has(w.id) && w.source_id);
+    if (selectedItems.length === 0) return;
+
+    if (!confirm(`Set ${selectedItems.length} value(s) to NULL?\n\nThis will permanently change these values.`)) {
+      return;
+    }
+
+    setResolvingMultiple(true);
+    let successCount = 0;
+    let failCount = 0;
+
+    for (const wonky of selectedItems) {
+      try {
+        const response = await fetch('/api/wonky-numbers', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            source_table: wonky.source_table,
+            source_id: wonky.source_id,
+            field_name: wonky.field_name,
+          }),
+        });
+
+        if (response.ok) {
+          successCount++;
+        } else {
+          failCount++;
+        }
+      } catch {
+        failCount++;
+      }
+    }
+
+    setSelectedWonky(new Set());
+    setResolvingMultiple(false);
+    await fetchReport();
+
+    if (failCount > 0) {
+      alert(`Resolved ${successCount} items. ${failCount} failed.`);
     }
   };
 
@@ -492,10 +561,24 @@ export default function HealthPage() {
               {activeTab === 'wonky' && (
                 <div className="space-y-4">
                   <div className="flex items-center justify-between">
-                    <h2 className="text-lg font-semibold">Suspicious Values Detected</h2>
-                    <p className="text-sm text-white/50">
-                      Review negative numbers, percentages over 100%, and unusually large values
-                    </p>
+                    <div>
+                      <h2 className="text-lg font-semibold">Suspicious Values Detected</h2>
+                      <p className="text-sm text-white/50">
+                        Review negative numbers, percentages over 100%, and unusually large values
+                      </p>
+                    </div>
+                    {report.wonkyNumbers.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={handleResolveSelected}
+                        disabled={selectedWonky.size === 0 || resolvingMultiple}
+                        className="rounded-lg bg-rose-500 px-4 py-2 text-sm font-semibold text-white hover:bg-rose-400 disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        {resolvingMultiple
+                          ? `Resolving ${selectedWonky.size}...`
+                          : `Set Selected to Null (${selectedWonky.size})`}
+                      </button>
+                    )}
                   </div>
 
                   {report.wonkyNumbers.length === 0 ? (
@@ -512,6 +595,14 @@ export default function HealthPage() {
                       <table className="w-full text-sm">
                         <thead>
                           <tr className="border-b border-white/10 text-left text-white/50">
+                            <th className="pb-3 pr-4 font-medium">
+                              <input
+                                type="checkbox"
+                                checked={selectedWonky.size === report.wonkyNumbers.filter((w) => w.source_id).length && selectedWonky.size > 0}
+                                onChange={handleSelectAllWonky}
+                                className="h-4 w-4 rounded border-white/30 bg-slate-800 text-emerald-500 focus:ring-emerald-500 focus:ring-offset-slate-900"
+                              />
+                            </th>
                             <th className="pb-3 pr-4 font-medium">Source</th>
                             <th className="pb-3 pr-4 font-medium">Client</th>
                             <th className="pb-3 pr-4 font-medium">Organization</th>
@@ -525,7 +616,16 @@ export default function HealthPage() {
                         </thead>
                         <tbody>
                           {report.wonkyNumbers.map((row) => (
-                            <tr key={row.id} className="border-b border-white/5">
+                            <tr key={row.id} className={`border-b border-white/5 ${selectedWonky.has(row.id) ? 'bg-emerald-500/10' : ''}`}>
+                              <td className="py-3 pr-4">
+                                <input
+                                  type="checkbox"
+                                  checked={selectedWonky.has(row.id)}
+                                  onChange={() => handleToggleWonkySelect(row.id)}
+                                  disabled={!row.source_id}
+                                  className="h-4 w-4 rounded border-white/30 bg-slate-800 text-emerald-500 focus:ring-emerald-500 focus:ring-offset-slate-900 disabled:opacity-30"
+                                />
+                              </td>
                               <td className="py-3 pr-4">
                                 <span className="rounded-lg bg-white/10 px-2 py-1 text-xs">
                                   {TABLE_LABELS[row.source_table] ?? row.source_table}

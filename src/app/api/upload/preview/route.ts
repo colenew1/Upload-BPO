@@ -3,6 +3,7 @@ import { NextResponse } from 'next/server';
 import {
   parseWorkbook,
   parseSingleSheet,
+  parseCsv,
   setDbMetricResolver,
   setDbIndustryResolver,
   initNormalizationTracking,
@@ -45,7 +46,7 @@ export async function POST(request: Request) {
 
     if (!(file instanceof Blob)) {
       return NextResponse.json(
-        { error: 'An .xlsx file is required under the "file" field.' },
+        { error: 'A file is required under the "file" field.' },
         { status: 400 },
       );
     }
@@ -54,6 +55,8 @@ export async function POST(request: Request) {
       (file as File).name ||
       formData.get('fileName')?.toString() ||
       'upload.xlsx';
+
+    const isCsv = filename.toLowerCase().endsWith('.csv');
 
     const buffer = Buffer.from(await file.arrayBuffer());
     const fileSizeMb = bytesToMb(buffer.length);
@@ -101,10 +104,17 @@ export async function POST(request: Request) {
     let parsed;
     try {
       if (mode === 'combined') {
-        // Combined mode: parse both behavior and metric sheets
+        // Combined mode: parse both behavior and metric sheets (Excel only)
+        if (isCsv) {
+          return NextResponse.json(
+            { error: 'CSV files are only supported for single-type uploads (Behaviors Only or Metrics Only).' },
+            { status: 400 },
+          );
+        }
+
         const behaviorSheetHint = formData.get('behaviorSheet')?.toString() ?? undefined;
         const metricSheetHint = formData.get('metricSheet')?.toString() ?? undefined;
-        
+
         parsed = parseWorkbook({
           buffer,
           fileName: filename,
@@ -113,26 +123,35 @@ export async function POST(request: Request) {
           metricSheetHint,
         });
       } else {
-        // Single sheet mode: behaviors or metrics only
+        // Single sheet/file mode: behaviors or metrics only
         const forceType = formData.get('forceType')?.toString() as 'behaviors' | 'metrics' | undefined;
         const sheetName = formData.get('sheetName')?.toString() ?? undefined;
-        
-        const singleResult = parseSingleSheet({
-          buffer,
-          fileName: filename,
-          clientOverride,
-          sheetName,
-          forceType: forceType ?? (mode === 'behaviors' ? 'behaviors' : 'metrics'),
-        });
-        
+
+        // Use CSV parser for CSV files, Excel parser for xlsx
+        const singleResult = isCsv
+          ? parseCsv({
+              buffer,
+              fileName: filename,
+              clientOverride,
+              forceType: forceType ?? (mode === 'behaviors' ? 'behaviors' : 'metrics'),
+            })
+          : parseSingleSheet({
+              buffer,
+              fileName: filename,
+              clientOverride,
+              sheetName,
+              forceType: forceType ?? (mode === 'behaviors' ? 'behaviors' : 'metrics'),
+            });
+
         // Convert single sheet result to standard format
+        const fileExtRegex = /\.(xlsx|csv)$/i;
         parsed = {
           behaviors: singleResult.behaviors,
           monthlyMetrics: singleResult.monthlyMetrics,
           activityMetrics: singleResult.activityMetrics,
           meta: {
             workbookName: filename,
-            client: clientOverride ?? filename.replace(/\.xlsx$/i, ''),
+            client: clientOverride ?? filename.replace(fileExtRegex, ''),
             generatedAt: new Date().toISOString(),
             sheets: {
               behaviors: singleResult.detectedType === 'behaviors' ? singleResult.sheetName : null,
@@ -143,7 +162,7 @@ export async function POST(request: Request) {
           },
           issues: singleResult.issues,
         };
-        
+
         // Add column info to issues for debugging
         if (singleResult.columns.length > 0) {
           parsed.issues.push(`Detected columns: ${singleResult.columns.join(', ')}`);

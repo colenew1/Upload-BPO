@@ -95,11 +95,11 @@ export async function POST(request: Request) {
         row.client,
         row.organization ?? '',
         row.program ?? '',
+        row.month,
+        row.year,
         row.metric ?? '',
         row.behavior ?? '',
         row.sub_behavior ?? '',
-        row.month,
-        row.year,
       ].join('|').toLowerCase(),
   );
 
@@ -133,40 +133,65 @@ export async function POST(request: Request) {
     const summaries: Array<{ table: string; count: number }> = [];
 
     if (behaviorInserts.length > 0) {
+      // Replace null with empty string for constraint columns
+      const sanitizedBehaviors = behaviorInserts.map((row) => ({
+        ...row,
+        organization: row.organization ?? '',
+        program: row.program ?? '',
+        metric: row.metric ?? '',
+        behavior: row.behavior ?? '',
+        sub_behavior: row.sub_behavior ?? '',
+      }));
       const { error } = await supabase
         .from('behavioral_coaching')
-        .upsert(behaviorInserts, {
+        .upsert(sanitizedBehaviors, {
           onConflict:
-            'client,organization,program,behavior,sub_behavior,month,year',
+            'client,organization,program,month,year,metric,behavior,sub_behavior',
         });
       if (error) throw error;
       summaries.push({ table: 'behavioral_coaching', count: behaviorInserts.length });
     }
 
     if (monthlyInserts.length > 0) {
+      // Replace null with empty string for constraint columns
+      const sanitizedMonthly = monthlyInserts.map((row) => ({
+        ...row,
+        organization: row.organization ?? '',
+        program: row.program ?? '',
+        metric_name: row.metric_name ?? '',
+      }));
+      // Use insert instead of upsert - duplicates are already filtered in preview
       const { error } = await supabase
         .from('monthly_metrics')
-        .upsert(monthlyInserts, {
-          onConflict:
-            'client,organization,program,metric_name,month,year',
-        });
+        .insert(sanitizedMonthly);
       if (error) throw error;
       summaries.push({ table: 'monthly_metrics', count: monthlyInserts.length });
     }
 
     if (activityInserts.length > 0) {
+      // Replace null with empty string for constraint columns
+      const sanitizedActivity = activityInserts.map((row) => ({
+        ...row,
+        organization: row.organization ?? '',
+        program: row.program ?? '',
+        metric_name: row.metric_name ?? '',
+      }));
+      // Use insert instead of upsert - duplicates are already filtered in preview
       const { error } = await supabase
         .from('activity_metrics')
-        .upsert(activityInserts, {
-          onConflict:
-            'client,organization,program,metric_name,month,year',
-        });
+        .insert(sanitizedActivity);
       if (error) throw error;
       summaries.push({ table: 'activity_metrics', count: activityInserts.length });
     }
 
     return summaries;
   };
+
+  console.log('[commit] Inserting:', {
+    behaviors: behaviorInserts.length,
+    monthly: monthlyInserts.length,
+    activity: activityInserts.length,
+  });
 
   try {
     const summaries = await runInsert();

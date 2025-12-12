@@ -131,7 +131,7 @@ const ORG_ALIASES: Record<string, string> = {
   
   // Extended Stay
   'extended stay': 'EXTENDED STAY AMERICA',
-  'esa': 'EXTENDED STAY AMERICA',
+  'extended stay america': 'EXTENDED STAY AMERICA',
   
   // Liberty Mutual
   'liberty': 'LIBERTY MUTUAL',
@@ -1034,5 +1034,114 @@ export const getSheetNames = (buffer: ArrayBuffer | Buffer): string[] => {
     bookSheets: true,
   });
   return workbook.SheetNames;
+};
+
+type ParseCsvOptions = {
+  buffer: ArrayBuffer | Buffer;
+  fileName: string;
+  clientOverride?: string;
+  /** Force parsing as this type instead of auto-detecting */
+  forceType?: 'behaviors' | 'metrics';
+  today?: Date;
+  skipDateFilter?: boolean;
+};
+
+/**
+ * Parse a CSV file - for separate uploads of behaviors or metrics
+ */
+export const parseCsv = (options: ParseCsvOptions): ParseSingleSheetResult => {
+  const data = toBuffer(options.buffer);
+  // Remove BOM character if present (common in Excel-exported CSVs)
+  let csvString = data.toString('utf-8');
+  if (csvString.charCodeAt(0) === 0xFEFF) {
+    csvString = csvString.slice(1);
+  }
+
+  // Use xlsx library to parse CSV - it handles CSV format too
+  const workbook = read(csvString, {
+    type: 'string',
+    cellDates: true,
+    cellNF: false,
+  });
+
+  if (!workbook.SheetNames.length) {
+    throw new Error('The uploaded CSV file could not be parsed.');
+  }
+
+  const today = options.today ?? new Date();
+  const client = options.clientOverride ?? options.fileName.replace(/\.csv$/i, '');
+  const skipDateFilter = options.skipDateFilter ?? true;
+
+  // CSV files have a single "sheet"
+  const sheetName = workbook.SheetNames[0];
+  const sheet = workbook.Sheets[sheetName];
+
+  if (!sheet) {
+    throw new Error('CSV file appears to be empty.');
+  }
+
+  const rows = utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: null });
+  const issues: string[] = [];
+  const stats = initStats();
+
+  if (rows.length === 0) {
+    return {
+      behaviors: [],
+      monthlyMetrics: [],
+      activityMetrics: [],
+      stats,
+      sheetName: options.fileName,
+      detectedType: 'unknown',
+      columns: [],
+      issues: ['CSV file is empty or has no data rows.'],
+    };
+  }
+
+  const sampleAccessor = createRowAccessor(rows[0]);
+  const columns = sampleAccessor.keys();
+  console.log(`[Parser] CSV "${options.fileName}" columns:`, columns);
+
+  // Detect type or use forced type
+  let detectedType: 'behaviors' | 'metrics' | 'unknown' = 'unknown';
+
+  if (options.forceType) {
+    detectedType = options.forceType;
+  } else if (looksLikeBehaviorSheet(rows)) {
+    detectedType = 'behaviors';
+  } else if (looksLikeMetricSheet(rows)) {
+    detectedType = 'metrics';
+  }
+
+  let behaviors: ParsedBehaviorRow[] = [];
+  let monthlyMetrics: ParsedMetricRow[] = [];
+  let activityMetrics: ParsedMetricRow[] = [];
+
+  if (detectedType === 'behaviors') {
+    behaviors = parseBehaviorRows(rows, options.fileName, client, today, stats, skipDateFilter);
+    if (stats.filteredMissingData > 0) {
+      issues.push(`${stats.filteredMissingData} rows filtered (missing required: organization, program, or month/year)`);
+    }
+  } else if (detectedType === 'metrics') {
+    const metrics = parseMetricRows(rows, options.fileName, client, today, stats, skipDateFilter);
+    monthlyMetrics = metrics.filter((row) => !row.isActivityMetric);
+    activityMetrics = metrics.filter((row) => row.isActivityMetric);
+    if (stats.filteredMissingData > 0) {
+      issues.push(`${stats.filteredMissingData} rows filtered (missing required: organization, program, metric, or month/year)`);
+    }
+  } else {
+    issues.push('Could not auto-detect data type from CSV. Please specify whether this is behavioral or metrics data.');
+    issues.push(`Detected columns: ${columns.join(', ')}`);
+  }
+
+  return {
+    behaviors,
+    monthlyMetrics,
+    activityMetrics,
+    stats,
+    sheetName: options.fileName,
+    detectedType,
+    columns,
+    issues,
+  };
 };
 

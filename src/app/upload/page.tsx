@@ -40,7 +40,13 @@ export default function UploadPage() {
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!file) {
-      setError('Choose an .xlsx file to continue.');
+      setError('Choose a file to continue.');
+      return;
+    }
+
+    const isCsv = file.name.toLowerCase().endsWith('.csv');
+    if (isCsv && mode === 'combined') {
+      setError('CSV files are only supported for single-type uploads (Behaviors Only or Metrics Only). Please use an Excel file for combined uploads.');
       return;
     }
 
@@ -163,12 +169,17 @@ export default function UploadPage() {
 
             <form className="space-y-5" onSubmit={handleSubmit}>
               <div>
-                <label className={formLabel}>Excel file *</label>
+                <label className={formLabel}>
+                  {mode === 'combined' ? 'Excel file *' : 'Excel or CSV file *'}
+                </label>
                 <div className="mt-2 flex flex-col gap-2 rounded-2xl border border-dashed border-white/20 bg-white/5 p-4 text-sm text-white/70">
                   <input
                     ref={fileInputRef}
                     type="file"
-                    accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                    accept={mode === 'combined'
+                      ? '.xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+                      : '.xlsx,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv'
+                    }
                     onChange={handleFileChange}
                     className="text-white/80 file:mr-4 file:rounded-lg file:border-0 file:bg-emerald-500 file:px-4 file:py-2 file:text-sm file:font-semibold file:text-emerald-950 hover:file:bg-emerald-400"
                   />
@@ -179,6 +190,11 @@ export default function UploadPage() {
                     </p>
                   )}
                 </div>
+                {mode !== 'combined' && (
+                  <p className="mt-1 text-xs text-white/50">
+                    CSV files are supported for single-type uploads (Behaviors Only or Metrics Only).
+                  </p>
+                )}
               </div>
 
               <div>
